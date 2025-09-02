@@ -1,5 +1,15 @@
-#!/bin/sh
+#!/bin/bash
+cd "${0%/*}" || exit  # Run from this directory
 
-wmake src
-wmake solvers/pisoHFDIBFoam
-wmake solvers/pimpleHFDIBFoam
+# Stop at first error
+set -e
+
+# Check if OpenFOAM/FOAM has been sourced
+if [[ -z "${WM_PROJECT}" ]]
+then
+    echo "Please source the OpenFOAM/FOAM bashrc first!"
+    exit 1
+fi
+
+wmake $* libso src
+wmake $* solvers/pimpleHFDIBFoam

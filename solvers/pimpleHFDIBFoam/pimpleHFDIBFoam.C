@@ -1,9 +1,12 @@
 /*---------------------------------------------------------------------------*\
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
-   \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2019 OpenFOAM Foundation
+   \\    /   O peration     |
+    \\  /    A nd           | www.openfoam.com
      \\/     M anipulation  |
+-------------------------------------------------------------------------------
+    Copyright (C) 2011-2017 OpenFOAM Foundation
+    Copyright (C) 2019 OpenCFD Ltd.
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -22,15 +25,56 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Application
-    pimpleHFDIBFoam
+    pimpleFoam.C
+
+Group
+    grpIncompressibleSolvers
 
 Description
-    pimpleFOAM with HFDIB
+    Transient solver for incompressible, turbulent flow of Newtonian fluids
+    on a moving mesh.
+
+    \heading Solver details
+    The solver uses the PIMPLE (merged PISO-SIMPLE) algorithm to solve the
+    continuity equation:
+
+        \f[
+            \div \vec{U} = 0
+        \f]
+
+    and momentum equation:
+
+        \f[
+            \ddt{\vec{U}} + \div \left( \vec{U} \vec{U} \right) - \div \gvec{R}
+          = - \grad p + \vec{S}_U
+        \f]
+
+    Where:
+    \vartable
+        \vec{U} | Velocity
+        p       | Pressure
+        \vec{R} | Stress tensor
+        \vec{S}_U | Momentum source
+    \endvartable
+
+    Sub-models include:
+    - turbulence modelling, i.e. laminar, RAS or LES
+    - run-time selectable MRF and finite volume options, e.g. explicit porosity
+
+    \heading Required fields
+    \plaintable
+        U       | Velocity [m/s]
+        p       | Kinematic pressure, p/rho [m2/s2]
+        \<turbulence fields\> | As required by user selection
+    \endplaintable
+
+Note
+   The motion frequency of this solver can be influenced by the presence
+   of "updateControl" and "updateInterval" in the dynamicMeshDict.
 
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
-#include "openHFDIB.H"
 #include "dynamicFvMesh.H"
 #include "singlePhaseTransportModel.H"
 #include "turbulentTransportModel.H"
@@ -39,13 +83,21 @@ Description
 #include "fvOptions.H"
 #include "localEulerDdtScheme.H"
 #include "fvcSmooth.H"
+#include "openHFDIB.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 int main(int argc, char *argv[])
 {
+    argList::addNote
+    (
+        "Transient solver for incompressible, turbulent flow"
+        " of Newtonian fluids on a moving mesh."
+    );
+
     #include "postProcess.H"
 
+    #include "addCheckCaseOptions.H"
     #include "setRootCaseLists.H"
     #include "createTime.H"
     #include "createDynamicFvMesh.H"
@@ -53,10 +105,12 @@ int main(int argc, char *argv[])
     #include "createDyMControls.H"
     #include "createFields.H"
     #include "createUfIfPresent.H"
+    #include "CourantNo.H"
+    #include "setInitialDeltaT.H"
 
     openHFDIB  HFDIB(mesh);
     HFDIB.initialize();
-    
+
     turbulence->validate();
 
     if (!LTS)
@@ -83,19 +137,21 @@ int main(int argc, char *argv[])
             #include "setDeltaT.H"
         }
 
-        runTime++;
+        ++runTime;
 
         Info<< "Time = " << runTime.timeName() << nl << endl;
 
-            
-        HFDIB.update(lambda,f);
-        
+        // Update the immersed location fields
+        // Should this be inside the pimple loop?
+        HFDIB.update(lambda, f);
+
         // --- Pressure-velocity PIMPLE corrector loop
         while (pimple.loop())
         {
-            if (pimple.firstPimpleIter() || moveMeshOuterCorrectors)
+            if (pimple.firstIter() || moveMeshOuterCorrectors)
             {
-                mesh.update();
+                // Do any mesh changes
+                mesh.controlledUpdate();
 
                 if (mesh.changing())
                 {
@@ -107,7 +163,7 @@ int main(int argc, char *argv[])
                         // from the mapped surface velocity
                         phi = mesh.Sf() & Uf();
 
-                        #include "correctPhi.H"
+                        #include "correctPhi.local.H"
 
                         // Make the flux relative to the mesh motion
                         fvc::makeRelative(phi, U);
@@ -137,9 +193,7 @@ int main(int argc, char *argv[])
 
         runTime.write();
 
-        Info<< "ExecutionTime = " << runTime.elapsedCpuTime() << " s"
-            << "  ClockTime = " << runTime.elapsedClockTime() << " s"
-            << nl << endl;
+        runTime.printExecutionTime(Info);
     }
 
     Info<< "End\n" << endl;

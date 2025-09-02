@@ -39,11 +39,10 @@ volScalarField lambda
         IOobject::MUST_READ,
         IOobject::AUTO_WRITE
     ),
-    mesh,
-    dimensionedScalar("zero",dimless,0) // initialising to 0
+    mesh
 );
 
-Info<< "Creating field Ui\n" << endl;
+Info<< "Creating field Ui" << nl << endl;
 volVectorField Ui
 (
     IOobject
@@ -57,10 +56,9 @@ volVectorField Ui
     U
 );
 
+volScalarField surface("surf", lambda);
 
-volScalarField surface("surf",lambda);
-
-Info<< "Reading field f\n" << endl;
+Info<< "Reading field f" << nl << endl;
 volVectorField f
 (
     IOobject
@@ -73,7 +71,6 @@ volVectorField f
     ),
     mesh
 );
-
 
 #include "createPhi.H"
 

@@ -37,15 +37,15 @@ void immersedBody::updateImposedField
     word  Vname
 )
 {
-    //- Check dictionary for parameters 
-    word BC = immersedDict_.subDict(Vname).lookup("BC");
+    //- Check dictionary for parameters
+    const word BC(immersedDict_.subDict(Vname).lookup("BC"));
 
     //- Implementation of the noSlip boundary condition
-    if(BC=="noSlip")
+    if (BC == "noSlip")
     {
-   
+
         //- Vector fields only!!
-        if( Type::typeName != Foam::vector::typeName)
+        if ( Type::typeName != Foam::vector::typeName)
         {
             FatalErrorIn("void immersedBody::updateImposedField(...)")
                 << "Attempted to cast noSlip boundary condition "
@@ -53,19 +53,19 @@ void immersedBody::updateImposedField
                 << " noSlip can only be applied to vector fields!" << endl;
 
         }
-        
-        //- Rotation and translation of the immersed body according to 
+
+        //- Rotation and translation of the immersed body according to
         //  centre-of-mass velocity and body angular velocity/axis-of-rotation
         for
-        (   
+        (
             int cell=0;
             cell<intCells_.size()+surfCells_.size();
             cell++
         )
         {
-            label cellI;
+            label cellI = -1;
 
-            if(cell<intCells_.size())
+            if (cell < intCells_.size())
             {
                 cellI = intCells_[cell];
             }
@@ -95,7 +95,7 @@ template<class Type>
 void immersedBody::remoteInterpolateField
 (
     autoPtr<interpolation<Type> >&  interpField,
-    List<Type>&  interpValues      
+    List<Type>&  interpValues
 )
 {
     //- Loop over all the remote cells, perform interpolation

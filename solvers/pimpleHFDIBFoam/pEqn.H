@@ -1,10 +1,11 @@
 volVectorField HbyA(constrainHbyA(rAU*UEqn.H(), U, p));
-surfaceScalarField phiHbyA
-(
-    "phiHbyA",
-    fvc::flux(HbyA)
-  + MRF.zeroFilter(fvc::interpolate(rAU)*fvc::ddtCorr(U, phi, Uf))
-);
+surfaceScalarField phiHbyA("phiHbyA", fvc::flux(HbyA));
+
+if (pimple.ddtCorr())
+{
+    phiHbyA += MRF.zeroFilter(fvc::interpolate(rAU)*fvc::ddtCorr(U, phi, Uf));
+}
+
 
 MRF.makeRelative(phiHbyA);
 
@@ -25,11 +26,12 @@ if (pimple.consistent())
     HbyA -= (rAU - rAtU())*fvc::grad(p);
 }
 
-HFDIB.interpolateIB(U,Ui,lambda);
+// Update the immersed force
+HFDIB.interpolateIB(U, Ui, lambda);
 f = surface*((1.0/rAU)*Ui - UEqn.H() + fvc::grad(p));
 surfaceScalarField phiIB(fvc::flux(lambda*rAtU*f));
 
-if (pimple.nCorrPiso() <= 1)
+if (pimple.nCorrPISO() <= 1)
 {
     tUEqn.clear();
 }
@@ -47,11 +49,11 @@ while (pimple.correctNonOrthogonal())
 
     pEqn.setReference(pRefCell, pRefValue);
 
-    pEqn.solve();
+    pEqn.solve(p.select(pimple.finalInnerIter()));
 
     if (pimple.finalNonOrthogonalIter())
     {
-        phi = phiHbyA  - pEqn.flux();
+        phi = phiHbyA - pEqn.flux();
     }
 }
 
@@ -69,4 +71,3 @@ fvc::correctUf(Uf, U, phi);
 
 // Make the fluxes relative to the mesh motion
 fvc::makeRelative(phi, U);
-

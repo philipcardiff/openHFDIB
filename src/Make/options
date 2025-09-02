@@ -1,13 +1,10 @@
 EXE_INC = \
-    -I$(LIB_SRC)/triSurface/lnInclude \
+    -I$(LIB_SRC)/surfMesh//lnInclude \
     -I$(LIB_SRC)/meshTools/lnInclude \
     -I$(LIB_SRC)/finiteVolume/lnInclude \
-    -I$(LIB_SRC)/mesh/blockMesh/lnInclude \
-    -I$(MPI_ARCH_PATH)/include  
+    -I$(LIB_SRC)/mesh/blockMesh/lnInclude
 
 LIB_LIBS = \
-    -ltriSurface \
+    -lsurfMesh \
     -lmeshTools \
-    -lblockMesh \
-    -L$(MPI_ARCH_PATH)/lib64 \
-    -lmpi_cxx  
+    -lblockMesh

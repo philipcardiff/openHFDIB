@@ -1,7 +1,16 @@
-#!/bin/sh
+#!/bin/bash
+cd "${0%/*}" || exit  # Run from this directory
+
+# Stop at first error
+set -e
+
+# Check if OpenFOAM/FOAM has been sourced
+if [[ -z "${WM_PROJECT}" ]]
+then
+    echo "Please source the OpenFOAM/FOAM bashrc first!"
+    exit 1
+fi
 
 wclean src
-
-wclean solvers/pisoHFDIBFoam
 wclean solvers/pimpleHFDIBFoam
 
