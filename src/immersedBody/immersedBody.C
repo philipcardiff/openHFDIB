@@ -68,6 +68,11 @@ CoM_(vector::zero),
 Axis_(vector::zero),
 omega_(0.),
 Vel_(vector::zero),
+scaleEnabled_(false),   // <-- NEW
+t0_(0),                 // <-- NEW
+t1_(0),                 // <-- NEW
+s0_(1),                 // <-- NEW
+s1_(1),                 // <-- NEW
 I_(symmTensor::zero),
 bodySurfMesh_
 (
@@ -75,7 +80,7 @@ bodySurfMesh_
     (
         IOobject
         (
-            fileName(immersedDict_.lookup("fileName")),
+            word(immersedDict_.lookup("fileName")),
             mesh_.time().constant(),
             "triSurface",
             mesh_,
@@ -92,7 +97,7 @@ bodySurfMesh_
         << " for body " << bodyName << endl;
 
     bodySurfMesh_->writeStats(Info);
-    Info<< endl;
+    Info << endl;
 
     if(immersedDict_.found("transform"))
     {
@@ -105,37 +110,52 @@ bodySurfMesh_
     if(immersedDict_.found("staticBody") )
     {
         bodyOperation_=STATICBODY;
-        Info<< bodyName << " is static body." << endl;
+        Info << bodyName << " is static body." << endl;
     }
     else if(immersedDict_.found("transRotatingBody"))
     {
         bodyOperation_=TRANSROTATINGBODY;
 
         //Get basic quantities from dict
-        Axis_ =
-            vector(immersedDict_.subDict("transRotatingBody").lookup("axis"));
-        CoM_ =
-            vector(immersedDict_.subDict("transRotatingBody").lookup("center"));
+        Axis_ = vector(immersedDict_.subDict("transRotatingBody").lookup("axis"));
+        CoM_  = vector(immersedDict_.subDict("transRotatingBody").lookup("center"));
 
         omega_  = readScalar
         (
             immersedDict_.subDict("transRotatingBody").lookup("omega")
         );
 
-        Vel_ =
-            vector(immersedDict_.subDict("transRotatingBody").lookup("velocity"));
+        Vel_ = vector(immersedDict_.subDict("transRotatingBody").lookup("velocity"));
 
-        Info<< bodyName << " has scripted trans rotational motion." << endl;
+	// --- NEW: optional scaling over time ---
+
+	// Optional: normalize axis to be safe
+        Axis_ /= max(VSMALL, mag(Axis_));
+	
+	if (immersedDict_.subDict("transRotatingBody").found("scale"))
+	  {
+	    const dictionary sD =
+	      immersedDict_.subDict("transRotatingBody").subDict("scale");
+
+	    t0_ = sD.lookupOrDefault<scalar>("t0", scalar(0));
+	    t1_ = sD.lookupOrDefault<scalar>("t1", scalar(0));
+	    s0_ = sD.lookupOrDefault<scalar>("s0", scalar(1));
+	    s1_ = sD.lookupOrDefault<scalar>("s1", scalar(1));
+	    
+	    scaleEnabled_ = true;
+	  }
+
+        Info << bodyName << " has scripted trans rotational motion." << endl;
     }
-    else if (immersedDict_.found("fluidCoupling"))
+    else if(immersedDict_.found("fluidCoupling"))
     {
-        bodyOperation_ = FLUIDCOUPLING;
-        Info<< bodyName << " is coupled with fluid phase." << endl;
+        bodyOperation_=FLUIDCOUPLING;
+        Info << bodyName << " is coupled with fluid phase." << endl;
 
     }
     else
     {
-        Info<< "No body operation was found for " << bodyName << endl
+        Info << "No body operation was found for " << bodyName << endl
              << "Assuming static body.";
         bodyOperation_=STATICBODY;
     }
@@ -149,16 +169,20 @@ immersedBody::~immersedBody()
 void immersedBody::transformBody(dictionary& transformDict)
 {
 
-    Info<< "Transforming immersed body " << bodyName_
+    Info << "Transforming immersed body " << bodyName_
          << " using dictionary" << endl;
 
     pointField bodyPoints(bodySurfMesh_->points());
 
-    vector transVec = transformDict.lookupOrDefault<vector>
-    (
-        "translate",
-        vector::zero
-    );
+    vector transVec =
+        vector
+        (
+            transformDict.lookupOrDefault<vector>
+            (
+                "translate",
+                vector::zero
+            )
+        );
 
 //- TODO: Implement!
 //    vector rotVec = transformDict.lookupOrDefault<vector>
@@ -179,32 +203,29 @@ void immersedBody::transformBody(dictionary& transformDict)
     }
 
      bodySurfMesh_->movePoints(bodyPoints);
-}
 
+}
 //---------------------------------------------------------------------------//
 //Update immersed body
-void immersedBody::updateBodyField
-(
-    volScalarField& body,
-    volVectorField& f
-)
+void immersedBody::updateBodyField( volScalarField& body,
+                                    volVectorField & f
+                                 )
 {
-    if (isFirstUpdate_)
+    if(isFirstUpdate_)
     {
-        createImmersedBody(body);
+        createImmersedBody( body );
         isFirstUpdate_ = false;
     }
     else
     {
-        updateImmersedBody(body, f);
+        updateImmersedBody( body, f );
     }
 
     body.correctBoundaryConditions();
 }
-
 //---------------------------------------------------------------------------//
 //Create immersed body info
-void immersedBody::createImmersedBody(volScalarField& body)
+void immersedBody::createImmersedBody(volScalarField& body )
 {
 
     triSurface ibTemp(bodySurfMesh_());
@@ -236,7 +257,7 @@ void immersedBody::createImmersedBody(volScalarField& body)
             {
                 //fraction of cell covered
                 body[cellI] += 1.0/(vertexPoints.size());
-               // Info<< "Found vertex inside\n";
+               // Info << "Found vertex inside\n";
                 bodyCell = true;
              }
             
@@ -297,12 +318,12 @@ void immersedBody::updateCoupling
 )
 {
 
-    const uniformDimensionedVectorField& g =
-        mesh_.lookupObject<uniformDimensionedVectorField>("g");
+    const uniformDimensionedVectorField g =
+    mesh_.lookupObject<uniformDimensionedVectorField>("g");
 
-    const dimensionedScalar rhof("rho", transportProperties_);
+    const dimensionedScalar rhof(transportProperties_.lookup("rho"));
 
-    const dimensionedScalar rho("rho", immersedDict_);
+    dimensionedScalar rho_(immersedDict_.lookup("rho"));
 
     vector F(vector::zero);
     vector T(vector::zero);
@@ -325,7 +346,7 @@ void immersedBody::updateCoupling
     Vel_ += mesh_.time().deltaT().value()
             * (
                 F / M_
-                + (1.0-rhof.value()/rho.value())*g.value()
+                + (1.0-rhof.value()/rho_.value())*g.value()
               );
 
     //Update body angular velocity
@@ -496,14 +517,14 @@ immersedBody::calculateInterpolationPoints
     }
 
 }
-
-
-void immersedBody::calculateGeometricalProperties(volScalarField& body)
+//---------------------------------------------------------------------------//
+void immersedBody::calculateGeometricalProperties( volScalarField& body )
 {
-    // Get density
-    const dimensionedScalar rho("rho", immersedDict_);
 
-    // Evaluate center of mass
+    //Get density
+    dimensionedScalar rho(immersedDict_.lookup("rho"));
+
+    //Evaluate center of mass
     M_ = 0.;
     vector tmpCom(vector::zero);
     CoM_ = vector::zero;
@@ -600,6 +621,21 @@ void immersedBody::moveImmersedBody()
     //- Rotate points
     bodyPoints = transform(T, bodyPoints);
 
+    if (scaleEnabled_)
+      {
+	scalar t = mesh_.time().value();
+
+	scalar s = s0_;
+	if      (t <= t0_) s = s0_;
+	else if (t >= t1_) s = s1_;
+	else               s = s0_ + (s1_ - s0_)*(t - t0_)/max(SMALL, t1_ - t0_);
+
+	forAll(bodyPoints, p)
+	  {
+	    bodyPoints[p] = CoM_ + s*(bodyPoints[p] - CoM_);
+	  }
+      }
+    
     //- Translate points
     forAll(bodyPoints,p)
     {

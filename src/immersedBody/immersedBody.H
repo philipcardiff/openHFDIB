@@ -104,6 +104,13 @@ namespace Foam
         //- Body velocity
         vector Vel_;
 
+        // --- deformation (optional scaling over time) ---
+        bool   scaleEnabled_;      // on/off
+        scalar t0_;                // start time of scaling
+        scalar t1_;                // end time of scaling
+        scalar s0_;                // scale at t0 (1 = original size)
+        scalar s1_;                // scale at t1
+
         //- Moment of intertia tensor
         symmTensor  I_;
 

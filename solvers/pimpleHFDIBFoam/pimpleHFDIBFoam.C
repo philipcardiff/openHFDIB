@@ -1,12 +1,9 @@
 /*---------------------------------------------------------------------------*\
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
-   \\    /   O peration     |
-    \\  /    A nd           | www.openfoam.com
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Copyright (C) 2011-2019 OpenFOAM Foundation
      \\/     M anipulation  |
--------------------------------------------------------------------------------
-    Copyright (C) 2011-2017 OpenFOAM Foundation
-    Copyright (C) 2019 OpenCFD Ltd.
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -25,56 +22,15 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Application
-    pimpleFoam.C
-
-Group
-    grpIncompressibleSolvers
+    pimpleHFDIBFoam
 
 Description
-    Transient solver for incompressible, turbulent flow of Newtonian fluids
-    on a moving mesh.
-
-    \heading Solver details
-    The solver uses the PIMPLE (merged PISO-SIMPLE) algorithm to solve the
-    continuity equation:
-
-        \f[
-            \div \vec{U} = 0
-        \f]
-
-    and momentum equation:
-
-        \f[
-            \ddt{\vec{U}} + \div \left( \vec{U} \vec{U} \right) - \div \gvec{R}
-          = - \grad p + \vec{S}_U
-        \f]
-
-    Where:
-    \vartable
-        \vec{U} | Velocity
-        p       | Pressure
-        \vec{R} | Stress tensor
-        \vec{S}_U | Momentum source
-    \endvartable
-
-    Sub-models include:
-    - turbulence modelling, i.e. laminar, RAS or LES
-    - run-time selectable MRF and finite volume options, e.g. explicit porosity
-
-    \heading Required fields
-    \plaintable
-        U       | Velocity [m/s]
-        p       | Kinematic pressure, p/rho [m2/s2]
-        \<turbulence fields\> | As required by user selection
-    \endplaintable
-
-Note
-   The motion frequency of this solver can be influenced by the presence
-   of "updateControl" and "updateInterval" in the dynamicMeshDict.
+    pimpleFOAM with HFDIB
 
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
+#include "openHFDIB.H"
 #include "dynamicFvMesh.H"
 #include "singlePhaseTransportModel.H"
 #include "turbulentTransportModel.H"
@@ -83,21 +39,12 @@ Note
 #include "fvOptions.H"
 #include "localEulerDdtScheme.H"
 #include "fvcSmooth.H"
-#include "openHFDIB.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 int main(int argc, char *argv[])
 {
-    argList::addNote
-    (
-        "Transient solver for incompressible, turbulent flow"
-        " of Newtonian fluids on a moving mesh."
-    );
-
     #include "postProcess.H"
-
-    #include "addCheckCaseOptions.H"
     #include "setRootCaseLists.H"
     #include "createTime.H"
     #include "createDynamicFvMesh.H"
@@ -105,12 +52,21 @@ int main(int argc, char *argv[])
     #include "createDyMControls.H"
     #include "createFields.H"
     #include "createUfIfPresent.H"
-    #include "CourantNo.H"
-    #include "setInitialDeltaT.H"
 
+    // HFDIB set-up
     openHFDIB  HFDIB(mesh);
     HFDIB.initialize();
 
+    // Helper: recompute the refinement driver from the *current* mesh
+    auto updateRefineDriver = [&]()
+    {
+       lambdaRefine01 = min(scalar(1), max(scalar(0), hCell*mag(fvc::grad(lambda))));
+       lambdaRefine01.correctBoundaryConditions();
+    };
+
+    // seed once so the very first mesh.update() sees it
+    updateRefineDriver();
+    
     turbulence->validate();
 
     if (!LTS)
@@ -137,21 +93,27 @@ int main(int argc, char *argv[])
             #include "setDeltaT.H"
         }
 
-        ++runTime;
+        runTime++;
 
         Info<< "Time = " << runTime.timeName() << nl << endl;
 
-        // Update the immersed location fields
-        // Should this be inside the pimple loop?
-        HFDIB.update(lambda, f);
+            
+        HFDIB.update(lambda,f);
 
+        // NEW: update refinement driver
+        updateRefineDriver(); 
+	
         // --- Pressure-velocity PIMPLE corrector loop
         while (pimple.loop())
         {
+
+            // --- make sure the driver is current BEFORE any mesh.update()
+            updateRefineDriver();
+
+	  
             if (pimple.firstIter() || moveMeshOuterCorrectors)
             {
-                // Do any mesh changes
-                mesh.controlledUpdate();
+                mesh.update();
 
                 if (mesh.changing())
                 {
@@ -173,7 +135,13 @@ int main(int argc, char *argv[])
                     {
                         #include "meshCourantNo.H"
                     }
-                }
+
+	           // >>> IMPORTANT: refresh IB data on the *new* mesh
+                   HFDIB.update(lambda, f);
+
+                  // also refresh the driver (safe and cheap)
+                   updateRefineDriver();
+		}
             }
 
             #include "UEqn.H"
@@ -193,7 +161,9 @@ int main(int argc, char *argv[])
 
         runTime.write();
 
-        runTime.printExecutionTime(Info);
+        Info<< "ExecutionTime = " << runTime.elapsedCpuTime() << " s"
+            << "  ClockTime = " << runTime.elapsedClockTime() << " s"
+            << nl << endl;
     }
 
     Info<< "End\n" << endl;
