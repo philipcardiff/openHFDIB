@@ -1,0 +1,68 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  3.0.x                                 |
+|   \\  /    A nd           | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      HFDIBDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+
+bodyList ("mitralValve");
+
+interpolationSchemes
+{
+    U cellPointFace;
+}
+
+mitralValve
+{
+    // The immersed geometry (inner surface is used to detect the axis & caps)
+    fileName  MV_abaqus_finer3.stl;
+
+   // --- New mitral slice-axis law (auto Ct/Cb from inner surface) ---
+    deformingBody_mitral
+    {
+        // Time profile: peak closure at T/2 with cos^2 shape
+      period       1.0;
+      nearRamp     0.004;
+      activeLen    0.016;
+      Fmax         0.65; //0.995
+
+      timeLaw      cos2;           // keep (very smooth in time)
+      spaceLaw     smootherstep;   // C2 spatial ramp (use smoothstep for C1)
+
+      topCenter    (0.02828793 0.03445355 -0.01951879);
+      bottomCenter (0.03157074 0.02113597 -0.01919660);
+
+      leafThickness 0.001;         // optional; stays inactive unless you pair skins
+
+        // Help pick the correct “TOP” cap orientation using the same STL
+        flipNormalTowardValve true;
+        valveRefFile  "constant/triSurface/MV_abaqus_finer3.stl";
+
+        // (Intentionally NOT setting topCenter/bottomCenter → auto-detect)
+    }
+
+    // Solid density for coupling/inertia (kept from your setup)
+    rho         rho [1 -3 0 0 0 0 0] 5000;
+
+    // Surface MC refinement for body fraction near the interface
+    refineMC    10;
+
+    // Imposed field BC used by HFDIB (velocity stencil side)
+    U
+    {
+        BC noSlip;
+    }
+}
+// ************************************************************************* //
+// ************************************************************************* //

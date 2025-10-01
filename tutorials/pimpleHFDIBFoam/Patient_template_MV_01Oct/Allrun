@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+# Allrun — Sphere-in-LV (pimpleHFDIBFoam, v2412)
+# Prints per write time:
+#   T=<time> | Δt=<deltaT> | outer=<count> (last=<N>) | conv=<yes/no>[in <M>] | linΣ=<sum> (p:<n> U:<n> other:<n>) | Co(mean/max)=<m>/<M> | ClockΔ=<sec>
+# Notes:
+#   * after Co value  -> reused from previous step (solver didn’t print Co this step)
+#   ~ after ClockΔ    -> computed from directory timestamps (solver didn’t print ClockTime)
+
+set -Eeuo pipefail
+ts(){ date +"[%H:%M:%S]"; }
+
+# ---------- sanity checks ----------
+need(){ [[ -e "$1" ]] || { echo "$(ts) MISSING: $1"; exit 1; }; }
+need system/controlDict
+need system/decomposeParDict
+need constant/dynamicMeshDict
+need constant/HFDIBDict
+need constant/triSurface || true      # keep optional; some setups still use triSurface refs
+need Geom.stl
+
+[[ -e constant/timeVsFlow ]] || true  # optional
+
+# ---------- dynamicCode cache ----------
+export WM_PROJECT_USER_DIR="$PWD/.OpenFOAM-cache"
+export WM_NCOMPPROCS=1
+mkdir -p "$WM_PROJECT_USER_DIR"
+
+# ---------- pick NP (override via PROCS=4 ./Allrun) ----------
+NP_DICT=$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value 2>/dev/null || echo 1)
+NP="${PROCS:-$NP_DICT}"
+if [[ "${PROCS:-}" != "" && "$NP" != "$NP_DICT" ]]; then
+  foamDictionary system/decomposeParDict -entry numberOfSubdomains -set "$NP" >/dev/null 2>&1
+fi
+echo "$(ts) Using NP=$NP"
+
+# ---------- clean transient outputs ----------
+foamListTimes -rm >/dev/null 2>&1 || true
+rm -rf processor* postProcessing log.* *.log .OpenFOAM-cache dynamicCode \
+       .summarized_times .last_clock .last_time .first_deltaT \
+       .last_Co_mean .last_Co_max .last_clockstamp 2>/dev/null || true
+
+# ---------- mesh generation ----------
+# If polyMesh is absent (fresh case), create it from the STL.
+# You can force regeneration by removing constant/polyMesh before running.
+if [[ ! -d constant/polyMesh ]]; then
+  echo "$(ts) Generating mesh from Geom.stl ..."
+  surfaceFeatureEdges Geom.stl Geom.fms > log.surfaceFeatureEdges 2>&1
+  cartesianMesh > log.cartesianMesh 2>&1
+  echo "$(ts) Mesh generation done."
+else
+  echo "$(ts) Found existing constant/polyMesh — skipping mesh generation."
+fi
+
+# ---------- warm-up (serial) to build any dynamicCode once ----------
+cp -f system/controlDict system/controlDict.bak
+trap 'mv -f system/controlDict.bak system/controlDict 2>/dev/null || true' EXIT
+foamDictionary system/controlDict -entry stopAt -set writeNow >/dev/null 2>&1
+pimpleHFDIBFoam -noFunctionObjects > log.warmup 2>&1 || { echo "$(ts) ERROR: warm-up failed (see log.warmup)"; exit 1; }
+mv -f system/controlDict.bak system/controlDict
+trap - EXIT
+foamDictionary system/controlDict -entry stopAt -set endTime >/dev/null 2>&1
+
+# Cache default deltaT (used if solver doesn’t print deltaT)
+foamDictionary system/controlDict -entry deltaT -value 2>/dev/null | tr -d '[:space:]' > .first_deltaT || echo "" > .first_deltaT
+
+# ---------- prepare parallel bits if needed ----------
+MPI_FLAGS=${MPI_FLAGS:---oversubscribe}
+PAR_FLAGS=${PAR_FLAGS:-}   # e.g. PAR_FLAGS=-noFunctionObjects
+
+if (( NP > 1 )); then
+  decomposePar -force > log.decomposePar 2>&1
+  if ! grep -q "procBoundary" processor0/constant/polyMesh/boundary 2>/dev/null; then
+    echo "$(ts) ERROR: bad decompose (no procBoundary found for NP=$NP)"
+    exit 1
+  fi
+  # Some workflows still expect triSurface files inside each processor dir.
+  if [[ -d constant/triSurface ]]; then
+    shopt -s nullglob
+    for d in processor*/constant; do
+      mkdir -p "$d/triSurface"
+      rsync -a --delete constant/triSurface/ "$d/triSurface/" >/dev/null 2>&1 || true
+    done
+    shopt -u nullglob
+  fi
+fi
+
+# ---------- launch solver ----------
+if (( NP > 1 )); then
+  ( mpirun $MPI_FLAGS -np "$NP" pimpleHFDIBFoam -parallel $PAR_FLAGS > log.pimpleHFDIBFoam 2>&1 ) & SOLVER_PID=$!
+else
+  ( pimpleHFDIBFoam $PAR_FLAGS > log.pimpleHFDIBFoam 2>&1 ) & SOLVER_PID=$!
+fi
+
+# ---------- trackers ----------
+: > .summarized_times
+: > .last_clock
+: > .last_time
+: > .last_Co_mean
+: > .last_Co_max
+: > .last_clockstamp
+
+# ---------- summarizer ----------
+summarize_time() {
+  local T="$1" log="log.pimpleHFDIBFoam"
+  local line
+  line=$(awk -v T="$T" '
+    BEGIN{
+      IGNORECASE=1;
+      clk=""; cpu=""; maxCo=""; meanCo="";
+      dt=""; lastIter=""; outer=0; seen=0;
+      linSum=0; linP=0; linU=0; linOther=0;
+      conv=0; convIters="";                 
+    }
+    /^Time[ \t]*=/ {
+      if (seen) exit;
+      split($0,a,"=");
+      t=a[2]; gsub(/^[ \t]+|[ \t]+$/,"",t);
+      if (t==T){ seen=1 }
+      next;
+    }
+    seen{
+      if ($0 ~ /Courant Number/ && $0 ~ /max:/) {
+        if (match($0,/mean:[ \t]*([0-9.+-eE]+)/,mm)) meanCo=mm[1];
+        if (match($0,/max:[ \t]*([0-9.+-eE]+)/,mx))  maxCo=mx[1];
+      }
+      if ($0 ~ /deltaT[ \t]*=/) {
+        if (match($0,/deltaT[ \t]*=[ \t]*([0-9.+-eE]+)/,md)) dt=md[1];
+      }
+      if ($0 ~ /ExecutionTime/ && $0 ~ /ClockTime/) {
+        if (match($0,/ExecutionTime[ \t]*=[ \t]*([0-9.+-eE]+)/,m1)) cpu=m1[1];
+        if (match($0,/ClockTime[ \t]*=[ \t]*([0-9.+-eE]+)/,m2)) clk=m2[1];
+      }
+      if ($0 ~ /(PIMPLE|PISO)[^:]*Iteration/ || $0 ~ /PIMPLE[: ]+Iteration/) {
+        outer++;
+        if (match($0,/Iteration[ \t]*([0-9]+)/,mi)) lastIter=mi[1];
+      }
+      if ($0 ~ /Solving for / && $0 ~ /No Iterations/) {
+        field="";
+        if (match($0,/Solving for[ \t]+([A-Za-z0-9_]+)/,mf)) field=mf[1];
+        nit=0;
+        if (match($0,/No Iterations[ \t]+([0-9]+)/,mi)) nit=mi[1]+0;
+        linSum += nit;
+        fld=tolower(field);
+        if (fld=="p") linP += nit;
+        else if (fld ~ /^u/) linU += nit;
+        else linOther += nit;
+      }
+      if (match($0,/(PIMPLE|PISO).*converged[^0-9]*([0-9]+)/,mc)) { conv=1; convIters=mc[2]; }
+      else if ($0 ~ /(PIMPLE|PISO).*converged/i) { conv=1; }
+      else if (match($0,/[Cc]onverged[^0-9]*([0-9]+)/,mc2)) { conv=1; convIters=mc2[1]; }
+    }
+    END{
+      if (lastIter=="") lastIter=outer;
+      if (clk=="")      clk="NaN";
+      if (cpu=="")      cpu="NaN";
+      if (maxCo=="")    maxCo="NaN";
+      if (meanCo=="")   meanCo="NaN";
+      if (dt=="")       dt="NaN";
+      if (convIters=="") convIters="NaN";
+      print cpu "\t" clk "\t" meanCo "\t" maxCo "\t" dt "\t" lastIter "\t" outer "\t" linSum "\t" linP "\t" linU "\t" linOther "\t" conv "\t" convIters;
+    }' "$log")
+
+  IFS=$'\t' read -r CPU CLK MEANCO MAXCO DT LASTITER OUTER LINSUM LINP LINU LINOTH CONVFLAG CONVITERS <<< "$line"
+
+  # ---- wall-clock delta (prefer from log)
+  local PREV=""; [[ -s .last_clock ]] && PREV=$(cat .last_clock)
+  local DELTA="$CLK"
+  if [[ -n "$PREV" && "$PREV" != "NaN" && "$CLK" != "NaN" ]]; then
+    DELTA=$(awk -v a="$CLK" -v b="$PREV" 'BEGIN{printf "%.3f", (a-b)}')
+  fi
+  echo -n "$CLK" > .last_clock
+
+  local DELTA_MARK=""
+  # ---- fallback: filesystem timestamps if ClockTime missing
+  if [[ "$CLK" == "NaN" || -z "$CLK" || "$DELTA" == "NaN" ]]; then
+    local timePath curStamp prevStamp=""
+    if [[ -d processor0 ]]; then timePath="processor0/$T"; else timePath="$T"; fi
+    if [[ -d "$timePath" ]]; then
+      curStamp=$(stat -c %Y "$timePath" 2>/dev/null || echo "")
+      [[ -s .last_clockstamp ]] && prevStamp=$(cat .last_clockstamp)
+      if [[ -n "$curStamp" && -n "$prevStamp" ]]; then
+        DELTA=$(awk -v a="$curStamp" -v b="$prevStamp" 'BEGIN{printf "%.3f", (a-b)}')
+        DELTA_MARK="~"
+      fi
+      echo -n "$curStamp" > .last_clockstamp
+    fi
+  fi
+
+  # ---- derive physical Δt if missing
+  local curT="$T"
+  local prevT=""; [[ -s .last_time ]] && prevT=$(cat .last_time)
+  local DT_DERIVED=""
+  if [[ -n "$prevT" ]]; then
+    DT_DERIVED=$(awk -v a="$curT" -v b="$prevT" 'BEGIN{printf "%.10g", (a-b)}')
+  fi
+  if [[ "$DT" == "NaN" || -z "$DT" ]]; then
+    if [[ -n "$DT_DERIVED" && "$DT_DERIVED" != "0" ]]; then
+      DT="$DT_DERIVED"
+    else
+      local DEFDT; DEFDT=$(cat .first_deltaT 2>/dev/null)
+      [[ -z "$DEFDT" ]] && DEFDT="NaN"
+      DT="$DEFDT"
+    fi
+  fi
+  echo -n "$curT" > .last_time
+
+  # ---- Courant fallback (+ markers)
+  local LASTMEAN LASTMAX
+  [[ -s .last_Co_mean ]] && LASTMEAN=$(cat .last_Co_mean)
+  [[ -s .last_Co_max  ]] && LASTMAX=$(cat .last_Co_max)
+
+  local CO_MEAN_MARK="" CO_MAX_MARK=""
+  if [[ "$MEANCO" == "NaN" || -z "$MEANCO" ]]; then
+    MEANCO="${LASTMEAN:-NaN}"
+    [[ "$MEANCO" != "NaN" ]] && CO_MEAN_MARK="*"
+  fi
+  if [[ "$MAXCO" == "NaN" || -z "$MAXCO" ]]; then
+    MAXCO="${LASTMAX:-NaN}"
+    [[ "$MAXCO" != "NaN" ]] && CO_MAX_MARK="*"
+  fi
+  [[ "$MEANCO" != "NaN" ]] && echo -n "$MEANCO" > .last_Co_mean
+  [[ "$MAXCO"  != "NaN"  ]] && echo -n "$MAXCO"  > .last_Co_max
+
+  # ---- convergence decision for printing
+  local CONV_STR="no"
+  local CONV_IN="-"
+  if [[ "$CONVFLAG" == "1" ]]; then
+    CONV_STR="yes"
+    if [[ "$CONVITERS" != "NaN" && -n "$CONVITERS" ]]; then
+      CONV_IN="$CONVITERS"
+    else
+      if [[ "$OUTER" -ge 1 && -n "$LASTITER" ]]; then CONV_IN="$LASTITER"; fi
+    fi
+  else
+    if [[ "$OUTER" -ge 1 && "$LASTITER" -eq 1 ]]; then
+      CONV_STR="yes"; CONV_IN="$LASTITER"
+    fi
+  fi
+
+  printf "%s T=%s | Δt=%s | outer=%s (last=%s) | conv=%s%s | linΣ=%s (p:%s U:%s other:%s) | Co(mean/max)=%s%s/%s%s | ClockΔ=%s%s s\n" \
+         "$(date +"[%H:%M:%S]")" "$T" "$DT" "$OUTER" "$LASTITER" \
+         "$CONV_STR" "$( [[ "$CONV_STR" == "yes" && "$CONV_IN" != "-" ]] && echo " in $CONV_IN" )" \
+         "$LINSUM" "$LINP" "$LINU" "$LINOTH" \
+         "$MEANCO" "$CO_MEAN_MARK" "$MAXCO" "$CO_MAX_MARK" "$DELTA" "$DELTA_MARK"
+}
+
+# ---------- watchers ----------
+summarize_new_times_serial() {
+  mapfile -t TIMES < <(ls -1 2>/dev/null | grep -E '^[0-9.]+$' | sort -V)
+  for T in "${TIMES[@]}"; do
+    grep -qx "$T" .summarized_times && continue
+    summarize_time "$T"
+    echo "$T" >> .summarized_times
+  done
+}
+
+summarize_new_times_parallel() {
+  mapfile -t TIMES < <(ls -1 processor0 2>/dev/null | grep -E '^[0-9.]+$' | sort -V)
+  for T in "${TIMES[@]}"; do
+    grep -qx "$T" .summarized_times && continue
+    all_ok=1; for p in processor*; do [[ -d "$p/$T" ]] || { all_ok=0; break; }; done
+    (( all_ok == 0 )) && continue
+    reconstructParMesh -time "$T" -constant   >> log.reconstructParMesh 2>&1 || true
+    reconstructPar      -time "$T"            >> log.reconstructPar     2>&1 || true
+    summarize_time "$T"
+    echo "$T" >> .summarized_times
+  done
+}
+
+# ---------- loop until solver ends ----------
+if (( NP > 1 )); then
+  while kill -0 "$SOLVER_PID" 2>/dev/null; do
+    summarize_new_times_parallel
+    sleep 2
+  done
+  summarize_new_times_parallel
+else
+  while kill -0 "$SOLVER_PID" 2>/dev/null; do
+    summarize_new_times_serial
+    sleep 2
+  done
+  summarize_new_times_serial
+fi
+
+wait "$SOLVER_PID" || true

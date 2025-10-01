@@ -1,0 +1,79 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSchemes;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+ddtSchemes
+{
+  // default         Euler;
+
+    default backward;
+}
+
+gradSchemes
+{
+    // robust gradients on deformed/moving meshes
+  default         pointCellsLeastSquares;    //Guass linear
+  // grad(U)         cellLimited leastSquares 1;
+    grad(U)                 cellLimited leastSquares 1;  // stronger limiter
+    grad(*)                 cellLimited leastSquares 1;
+}
+
+divSchemes
+{
+    default                                 none;
+
+    // Momentum convection (bounded, mildly dissipative and stable)
+    div(phi,U)                             Gauss limitedLinearV 1;
+
+    //div(phi,U)                              bounded Gauss vanLeerV;
+
+    //div(phi,U)                              Gauss linearUpwind grad(U);
+
+    // Viscous stress
+    div((nuEff*dev2(T(grad(U)))))           Gauss linear;
+
+    // HFDIB forcing term in UEqn
+    div(((lambda*(1|A(U)))*f))              Gauss linear;
+
+    // Only used if you enable SDF curvature: kappa = div(nhat)
+    div(nhat)                               Gauss linear;
+
+    // If a turbulence model is enabled, these will be used (harmless otherwise)
+    div(phi,k)                             bounded Gauss limitedLinearV1; //  Gauss upwind;
+    div(phi,epsilon)                       bounded Gauss limitedLinearV1; //  Gauss upwind;
+    div(phi,omega)                         bounded Gauss limitedLinearV1; //  Gauss upwind;
+    div(phi,nuTilda)                       bounded Gauss limitedLinearV1; // Gauss upwind;
+}
+
+laplacianSchemes
+{
+    // Handles non-orthogonality after mesh motion
+    default                                 Gauss linear corrected;
+
+    // REQUIRED by dynamicMotionSolverFvMesh (LV wall motion)
+    laplacian(diffusivity,cellMotionU)      Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+// ************************************************************************* //

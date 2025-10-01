@@ -1,0 +1,44 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      dynamicMeshDict;
+}
+
+// Mesh motion only
+dynamicFvMesh  dynamicMotionSolverFvMesh;
+
+// Load core motion solvers + your LV motion library (.so name you built)
+motionSolverLibs ("libfvMotionSolvers.so" "libmovingVentricleFvMotionSolver.so");
+
+// Use your solver's runtime type name
+motionSolver     movingVentricle;
+
+movingVentricleCoeffs
+{
+    // Must match constant/polyMesh/boundary (case-sensitive)
+    patchName    WALL;
+
+    // Volume matching tolerance for the internal loop
+    relTol       0.001;
+
+    // Prescribed waveform file
+    timeVsFlowSeries
+    {
+        file          "$FOAM_CASE/constant/timeVsFlow";
+        outOfBounds   clamp;
+    }
+
+    // Interior mesh diffusion
+    diffusivity  quadratic inverseDistance (WALL);
+}
+// ************************************************************************* //
