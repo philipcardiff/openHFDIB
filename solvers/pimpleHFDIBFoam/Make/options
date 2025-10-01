@@ -29,3 +29,5 @@ EXE_LIBS = \
     -latmosphericModels \
     -lregionFaModels \
     -lfiniteArea
+
+EXE_INC += -I$(WM_PROJECT_DIR)/applications/solvers/incompressible/pimpleFoam
