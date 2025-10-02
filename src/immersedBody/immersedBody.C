@@ -181,7 +181,6 @@ bodySurfMesh_
         bodyOperation_=STATICBODY;
     }
 
-
     // --- leafletRT: optional prescribed motion block -----------------
     if (immersedDict_.found("deformingBody"))
       {
@@ -1125,9 +1124,8 @@ void immersedBody::applyMitralSliceAxis()
 //-----------------------------------------------------------------//
 void immersedBody::transformBody(dictionary& transformDict)
 {
-
-    Info << "Transforming immersed body " << bodyName_
-         << " using dictionary" << endl;
+    Info<< "Transforming immersed body " << bodyName_
+        << " using dictionary" << endl;
 
     //pointField bodyPoints = bodySurfMesh_->points();
 
@@ -1159,8 +1157,8 @@ void immersedBody::transformBody(dictionary& transformDict)
     }
 
      bodySurfMesh_->movePoints(bodyPoints);
-
 }
+
 //---------------------------------------------------------------------------//
 //Update immersed body
 void immersedBody::updateBodyField( volScalarField& body,
@@ -1271,6 +1269,7 @@ void immersedBody::createImmersedBody(volScalarField& body)
     Info<< "immersedBody: body min/max = "
         << gMin(body) << " / " << gMax(body) << nl;
 }
+
 //---------------------------------------------------------------------------//
 //Update immersed body info
 void immersedBody::updateImmersedBody
@@ -1279,7 +1278,6 @@ void immersedBody::updateImmersedBody
     volVectorField & f
 )
 {
-
   ensureStorageForCurrentMesh_();   // <— NEW
 
 
@@ -1337,8 +1335,8 @@ void immersedBody::updateImmersedBody
   // Info<< __FILE__ << " " << __LINE__ << endl;
   createImmersedBody(body);
   // Info<< __FILE__ << " " << __LINE__ << endl;
-
 }
+
 //---------------------------------------------------------------------------//
 void immersedBody::updateCoupling
 (
@@ -1346,7 +1344,6 @@ void immersedBody::updateCoupling
     volVectorField & f
 )
 {
-
      ensureStorageForCurrentMesh_();
 
     const uniformDimensionedVectorField g =
@@ -1399,9 +1396,8 @@ void immersedBody::updateCoupling
     {
        Axis_ =  Omega_/omega_;
     }
-
-
 }
+
 //---------------------------------------------------------------------------//
 void Foam::immersedBody::ensureStorageForCurrentMesh_()
 {
@@ -1418,9 +1414,8 @@ immersedBody::calculateInterpolationPoints
 (
     volScalarField& body,
     triSurfaceSearch& ibTriSurfSearch
-                                         )
+)
 {
-
     double sqrtThree_ = sqrt(3.0);
     meshSearch search_(mesh_);
 
@@ -1431,13 +1426,15 @@ immersedBody::calculateInterpolationPoints
     //Create temporary surface normals
     volVectorField surfNorm(-fvc::grad(body));
     // If nothing on the surface yet, bail out cleanly
-    if (surfCells_.empty())
-    {
-        WarningInFunction << "No surface cells at time " << mesh_.time().timeName() << ". Skipping interpolation-point build." << nl;
-        interpolationCells_.clear();
-        interpolationPoints_.clear();
-	return;   // <-- important
-    }
+    // if (surfCells_.empty())
+    // {
+    //     WarningInFunction
+    //         << "No surface cells at time " << mesh_.time().timeName()
+    //         << ". Skipping interpolation-point build." << nl;
+    //     interpolationCells_.clear();
+    //     interpolationPoints_.clear();
+    //     return;   // <-- important // NO, YOU CAN"T DO THIS
+    // }
 
     //Create local list of remote nodes
     List<point> localRemotePoints;
@@ -1514,7 +1511,7 @@ immersedBody::calculateInterpolationPoints
 
     //- Parallel communication
 
-    if (!UPstream::parRun())
+    if (!Pstream::parRun())
     {
         return;
     }
