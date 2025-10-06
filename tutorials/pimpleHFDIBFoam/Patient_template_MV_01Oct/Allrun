@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -o pipefail
 
-# Source OpenFOAM environment and RunFunctions
-. "${WM_PROJECT_DIR:-$HOME/OpenFOAM/OpenFOAM-v2412}/etc/bashrc"
+# --- Source OpenFOAM env (user or system) ---
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+    if [ -f "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc" ]; then
+        . "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc"
+    elif [ -f "/usr/lib/openfoam/openfoam2412/etc/bashrc" ]; then
+        . "/usr/lib/openfoam/openfoam2412/etc/bashrc"
+    else
+        echo "Error: OpenFOAM environment not found." >&2; exit 1
+    fi
+fi
+set -e
 . "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 
+# --- App & NP ---
 app=$(getApplication)
+[[ -z "${app// }" ]] && { echo "Error: 'application' missing in system/controlDict."; exit 1; }
 
-# Detect processor count (env PROCS overrides decomposeParDict; default 1)
 nFromDict=$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value 2>/dev/null || echo 1)
-NP="${PROCS:-$nFromDict}"
-[[ -z "${NP// }" ]] && NP=1
+NP="${PROCS:-$nFromDict}"; [[ -z "${NP// }" ]] && NP=1
+echo "[Allrun] Solver=$app  NP=$NP"
 
-# Mesh if none exists
+# --- Mesh if missing ---
 if [[ ! -d constant/polyMesh ]]; then
+  echo "[Allrun] No mesh -> ./Allmesh"
+  [[ -x ./Allmesh ]] || { echo "Error: Allmesh not executable."; exit 1; }
   ./Allmesh
 fi
 
-# Optional warm-up for dynamicCode
-if grep -q "libs (.*lib.*dynamicCode.*)" system/controlDict 2>/dev/null; then
+# --- Optional: build dynamicCode once ---
+if grep -q "libs.*dynamicCode" system/controlDict 2>/dev/null; then
   cp system/controlDict system/controlDict.bak
   trap 'mv -f system/controlDict.bak system/controlDict' EXIT
   foamDictionary system/controlDict -entry stopAt -set writeNow >/dev/null
@@ -27,17 +39,44 @@ if grep -q "libs (.*lib.*dynamicCode.*)" system/controlDict 2>/dev/null; then
   trap - EXIT
 fi
 
-# Run (parallel if NP > 1)
+# --- Prepare logging (ensure no leftover watchers) ---
+log="log.$app"
+: > "$log"
+pkill -f "tail -n0 -F $log" >/dev/null 2>&1 || true
+
+# --- Launch solver ---
 if (( NP > 1 )); then
-  if [[ "$NP" != "$nFromDict" ]]; then
-    foamDictionary system/decomposeParDict -entry numberOfSubdomains -set "$NP" >/dev/null
-  fi
+  [[ "$NP" != "$nFromDict" ]] && foamDictionary system/decomposeParDict -entry numberOfSubdomains -set "$NP" >/dev/null
   runApplication decomposePar -force
-  runApplication "$app" -parallel
-  runApplication reconstructPar -latestTime
+  echo "[Allrun] mpirun -np $NP $app -parallel"
+  ( mpirun -np "$NP" "$app" -parallel > "$log" 2>&1 ) & SOLVER_PID=$!
 else
-  runApplication "$app"
+  echo "[Allrun] $app (serial)"
+  ( "$app" > "$log" 2>&1 ) & SOLVER_PID=$!
 fi
 
-# Optional post-processing
-[[ -f system/sampleDict ]] && runApplication postProcess -func sample
+# --- Show progress (silence tail’s “appeared” messages) ---
+tail -n0 -f "$log" 2>/dev/null | awk '/^Time =/{printf("[Time] %s\n",$0); fflush()}' & TAIL_PID=$!
+trap '[[ -n "${TAIL_PID:-}" ]] && kill "$TAIL_PID" >/dev/null 2>&1 || true' EXIT
+
+# --- Live reconstruction (parallel only) ---
+if (( NP > 1 )); then
+  : > .reconstructed_times
+  while kill -0 "$SOLVER_PID" 2>/dev/null; do
+    for t in $(ls -1 processor0 2>/dev/null | grep -E '^[0-9.]+$' | sort -V); do
+      grep -qx "$t" .reconstructed_times && continue
+      allok=1; for p in processor*; do [[ -d "$p/$t" ]] || { allok=0; break; }; done
+      (( allok==0 )) && continue
+      reconstructPar -time "$t" >/dev/null 2>&1 || true
+      echo "$t" >> .reconstructed_times
+      echo "[Reconstruct] time $t"
+    done
+    sleep 2
+  done
+fi
+
+# --- Finish ---
+wait "$SOLVER_PID" || true
+[[ -n "${TAIL_PID:-}" ]] && kill "$TAIL_PID" >/dev/null 2>&1 || true
+runApplication reconstructPar -latestTime || true
+echo "[Allrun] Done."

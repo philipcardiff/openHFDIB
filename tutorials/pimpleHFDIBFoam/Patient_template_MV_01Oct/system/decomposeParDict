@@ -14,20 +14,20 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-numberOfSubdomains 4;
+numberOfSubdomains 8;
 
-//method          scotch;
+method          scotch;
 
-method          simple;
+// method          simple;
 
-simpleCoeffs
-{
-    n               (2 1 2);     // make 2 tiles in x–z, 4 in y
-    delta           0.001;
-}
+// simpleCoeffs
+// {
+//     n               (2 1 2);     // make 2 tiles in x–z, 4 in y
+//     delta           0.001;
+// }
 
-distributed     no;
-roots           ( );
+// distributed     no;
+// roots           ( );
 
 
 
