@@ -28,7 +28,7 @@ if (pimple.consistent())
 
 // Update the immersed force
 HFDIB.interpolateIB(U, Ui, lambda);
-f = surface*((1.0/rAU)*Ui - UEqn.H() + fvc::grad(p));
+//f = surface*((1.0/rAU)*Ui - UEqn.H() + fvc::grad(p));
 surfaceScalarField phiIB(fvc::flux(lambda*rAtU*f));
 
 if (pimple.nCorrPISO() <= 1)

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+# Source OpenFOAM env
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+    if [ -f "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc" ]; then
+        . "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc"
+    elif [ -f "/usr/lib/openfoam/openfoam2412/etc/bashrc" ]; then
+        . "/usr/lib/openfoam/openfoam2412/etc/bashrc"
+    else
+        echo "Error: OpenFOAM environment not found." >&2; exit 1
+    fi
+fi
+set -e
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+
+cleanCase                # prints "Cleaning case ..." once
+rm -rf dynamicCode
+rm -f  Geom.fms
+rm -f  log.* *.log
+rm -f  .reconstructed_times .last_clock .summarized_times

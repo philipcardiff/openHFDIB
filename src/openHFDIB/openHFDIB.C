@@ -78,7 +78,7 @@ openHFDIB::~openHFDIB()
     forAll(immersedBodies_,bodyI)
     {
         immersedBodies_[bodyI].clear();
-    }  
+    }
 
     immersedBodies_.clear();
 }
@@ -89,16 +89,16 @@ void openHFDIB::initialize()
     wordList stlNames( HFDIBDict_.lookup("bodyList") );
 
     HFDIBinterpDict_ = HFDIBDict_.subDict("interpolationSchemes");
-   
-    //Generate immersed objects    
+
+    //Generate immersed objects
     forAll(stlNames,name)
     {
         immersedBodies_.append
-        ( 
+        (
             autoPtr<immersedBody>
             (
                 new immersedBody
-                (  
+                (
                     stlNames[name],
                     mesh_,
                     HFDIBDict_,
@@ -116,11 +116,13 @@ void openHFDIB::update
     volVectorField & f
 )
 {
-
+  //Info<< __FILE__ << " " << __LINE__ << endl;
     forAll(immersedBodies_,bodyId)
     {
+  // Info<< __FILE__ << " " << __LINE__ << endl;
         immersedBodies_[bodyId]->updateBodyField(body,f);
     }
+  // Info<< __FILE__ << " " << __LINE__ << endl;
 
 }
 //---------------------------------------------------------------------------//
