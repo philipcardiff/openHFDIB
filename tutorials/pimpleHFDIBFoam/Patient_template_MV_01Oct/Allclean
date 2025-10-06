@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+. "${WM_PROJECT_DIR:-$HOME/OpenFOAM/OpenFOAM-v2412}/etc/bashrc"
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+foamCleanTutorials
+rm -rf dynamicCode

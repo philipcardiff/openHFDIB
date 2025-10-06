@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+. "${WM_PROJECT_DIR:-$HOME/OpenFOAM/OpenFOAM-v2412}/etc/bashrc"
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+runApplication blockMesh
+
+# Run snappyHexMesh only if its dictionary exists
+if [[ -f system/snappyHexMeshDict ]]; then
+  runApplication snappyHexMesh -overwrite
+fi
+
+runApplication checkMesh
