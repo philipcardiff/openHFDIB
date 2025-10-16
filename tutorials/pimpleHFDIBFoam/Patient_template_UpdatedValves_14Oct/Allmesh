@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+# --- Source OpenFOAM env (user or system) ---
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+    if [ -f "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc" ]; then
+        . "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc"
+    elif [ -f "/usr/lib/openfoam/openfoam2412/etc/bashrc" ]; then
+        . "/usr/lib/openfoam/openfoam2412/etc/bashrc"
+    else
+        echo "Error: OpenFOAM environment not found." >&2; exit 1
+    fi
+fi
+set -e
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# 1) Feature extraction (re-create when STL newer or .fms missing)
+if [[ -f Geom.stl ]]; then
+    if [[ ! -f Geom.fms || Geom.stl -nt Geom.fms ]]; then
+        echo "[Allmesh] Generating Geom.fms from Geom.stl ..."
+        runApplication surfaceFeatureEdges Geom.stl Geom.fms
+    fi
+fi
+
+# 2) Cartesian meshing (uses system/meshDict)
+echo "[Allmesh] Running cartesianMesh ..."
+runApplication cartesianMesh
+
+# 3) Check mesh (non-fatal), then verify it exists
+echo "[Allmesh] Checking mesh ..."
+runApplication checkMesh || true
+[[ -f constant/polyMesh/points ]] || { echo "[Allmesh] ERROR: Mesh not created."; exit 1; }
+echo "[Allmesh] Done."

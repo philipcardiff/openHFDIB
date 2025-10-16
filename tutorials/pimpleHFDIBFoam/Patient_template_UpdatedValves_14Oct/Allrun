@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# ----- Source OpenFOAM v2412 + RunFunctions -----
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+  if [ -f "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc" ]; then
+    . "$HOME/OpenFOAM/OpenFOAM-v2412/etc/bashrc"
+  elif [ -f "/usr/lib/openfoam/openfoam2412/etc/bashrc" ]; then
+    . "/usr/lib/openfoam/openfoam2412/etc/bashrc"
+  else
+    echo "Error: OpenFOAM v2412 environment not found." >&2; exit 1
+  fi
+fi
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# ----- Solver & NP -----
+app=$(getApplication) || { echo "Error: 'application' missing in system/controlDict."; exit 1; }
+NP="${PROCS:-$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value 2>/dev/null || echo 1)}"
+echo "[Allrun] Solver=$app  NP=$NP"
+
+# ----- Serial fast path (no reconstruct needed) -----
+if [ "$NP" -eq 1 ]; then
+  echo "[Allrun] $app (serial)"
+  exec "$app" | tee "log.$app"
+fi
+
+# ----- Parallel: decompose -> run (bg) -> live reconstruct-each-time -----
+runApplication decomposePar -force   # -> log.decomposePar
+
+echo "[Allrun] mpirun -np $NP $app -parallel"
+mpirun -np "$NP" "$app" -parallel > "log.$app" 2>&1 & SOLVER_PID=$!
+
+# Live reconstruct each written time (skip t=0)
+: > .reconstructed_times
+while kill -0 "$SOLVER_PID" 2>/dev/null; do
+  if [[ -d processor0 ]]; then
+    for t in $(ls -1 processor0 2>/dev/null | grep -E '^[0-9.]+$' | sort -V); do
+      [[ "$t" == "0" ]] && continue
+      grep -qx "$t" .reconstructed_times && continue
+      ok=1; for p in processor*; do [[ -d "$p/$t" ]] || { ok=0; break; }; done
+      (( ok==0 )) && continue
+      reconstructPar -time "$t" >> log.reconstructPar 2>&1 || true
+      echo "[Reconstruct] time $t"
+      echo "$t" >> .reconstructed_times
+    done
+  fi
+  sleep 2
+done
+
+# Final reconstruct just in case last time slipped past the loop
+runApplication reconstructPar -latestTime || true
+echo "[Allrun] Done."

@@ -1,0 +1,54 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                |
+| \\      /  F ield         | cfMesh: A library for mesh generation          |
+|  \\    /   O peration     |                                                |
+|   \\  /    A nd           | Author: Franjo Juretic                         |
+|    \\/     M anipulation  | E-mail: franjo.juretic@c-fields.com            |
+\*---------------------------------------------------------------------------*/
+
+FoamFile
+{
+    version   2.0;
+    format    ascii;
+    class     dictionary;
+    location  "system";
+    object    meshDict;
+}
+
+surfaceFile "Geom.fms";
+checkForGluedMesh 1;
+
+/* ============ GLOBAL SIZE FIELD ============ */
+maxCellSize  0.0045;
+minCellSize  0.001;
+
+/* ============ NEAR-SURFACE (all patches) ============ */
+boundaryCellSize                    0.0013;
+boundaryCellSizeRefinementThickness 0.0018;
+
+/* ============ PATCH-LOCAL (TOP only) ============ */
+// localRefinement
+// {
+//     // Per-patch refinement (name must match constant/polyMesh/boundary)
+//     TOP
+//     {
+//         cellSize            0.001;
+//         refinementThickness 0.0017;
+//     }
+
+//     /* ---- VOLUME REFINEMENT (portable syntax) ----
+//        Some cfMesh builds expect volume boxes here, under refinementBoxes,
+//        not in a top-level 'objectRefinement' section.
+//     */
+//     refinementBoxes
+//     {
+//         topVolume
+//         {
+//             type box;
+//             // exact bbox of TOP.stl
+//             min ( 0.000366791  -0.011641299  -0.041127101 );
+//             max ( 0.047295701   0.038654100   0.005414560 );
+//             cellSize 0.001;   // >= TOP skin; smooth transition
+//         }
+//     }
+// }

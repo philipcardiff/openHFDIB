@@ -1,0 +1,44 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2412                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      body;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 0 0 0 0 0 0];
+/* Start fluid-only; your HFDIB step updates 'body' each time step */
+internalField   uniform 0;
+
+boundaryField
+{
+    INLET
+    {
+        type    fixedValue;
+        value   uniform 0;       // fluid at inlet
+    }
+    OUTLET
+    {
+        type    fixedValue;
+        value   uniform 0;       // fluid at outlet
+    }
+    WALL
+    {
+        type    zeroGradient;    // neutral on walls
+    }
+    // TOP
+    // {
+    //     type    zeroGradient;    // neutral on top
+    // }
+}
+
+// ************************************************************************* //
