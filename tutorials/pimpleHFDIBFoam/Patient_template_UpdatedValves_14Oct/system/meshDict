@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                |
+| \\      /  F ield         | cfMesh: A library for mesh generation          |
+|  \\    /   O peration     |                                                |
+|   \\  /    A nd           | Author: Franjo Juretic                         |
+|    \\/     M anipulation  | E-mail: franjo.juretic@c-fields.com            |
+\*---------------------------------------------------------------------------*/
+
+FoamFile
+{
+    version   2.0;
+    format    ascii;
+    class     dictionary;
+    location  "system";
+    object    meshDict;
+}
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+surfaceFile "Geom.fms";
+
+checkForGluedMesh 1;
+
+/* ================== GLOBAL SIZE FIELD ================== */
+maxCellSize  0.006;   
+minCellSize  0.0009;   
+
+/* ================== BOUNDARY SIZE FIELD ================== */
+
+boundaryCellSize 0.0014;                    
+boundaryCellSizeRefinementThickness 0.0016;   
+
+/* ================== BOUNDARY LAYERS ================== */
+
+boundaryLayers
+{
+    enable false;
+  
+    // enable true;
+    // nLayers                  2;
+    // allowDiscontinuity      false;
+    // nSmoothNormals          30;
+    // nSmoothThickness        15;
+    // nGrow                   3;
+    // maxFaceThicknessRatio   0.4;
+    // minLayerThickness       0.004;
+    // maxCellAspectRatio      40;
+
+    // // ---- per-patch overrides ----
+    // patchBoundaryLayers
+    // {
+    //     INLET  
+    //     { 
+    //         nLayers 0; 
+    //     }
+    //     OUTLET 
+    //     { 
+    //         nLayers 0; 
+    //     }
+
+    //     // Use your exact wall patch name(s) here; regex allowed
+    //     WALL
+    //     {
+    //         nLayers                 6;
+    //         maxFirstLayerThickness  0.004;
+    //         thicknessRatio          1.3;
+    //         allowDiscontinuity      false;
+    //     }
+    // }
+}
+
+// ************************************************************************* //

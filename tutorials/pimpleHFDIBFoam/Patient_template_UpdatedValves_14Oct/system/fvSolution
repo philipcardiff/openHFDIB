@@ -1,0 +1,125 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers
+{
+    // Pressure
+    p
+    {
+        solver               GAMG;
+        tolerance            1e-08;
+        relTol               0.05;
+
+        smoother             DICGaussSeidel;
+        nCellsInCoarsestLevel 20;
+        agglomerator         faceAreaPair;
+        mergeLevels          1;
+        cacheAgglomeration   true;
+        maxIter              200;
+    }
+
+    // Final pressure (and final pcorr if used)
+    "pFinal|pcorrFinal"
+    {
+        $p;
+        tolerance           1e-12;
+        relTol              0;
+    }
+
+    // Optional explicit pressure-correction (needed if correctPhi = yes)
+    pcorr
+    {
+        solver              PCG;
+        preconditioner      DIC;
+        tolerance           1e-12;
+        relTol              0;
+    }
+
+    // Momentum (and common turbulence fields if present)
+    "(U|Ui|UFinal|k|epsilon|omega|R|nuTilda)"
+    {
+        solver              PBiCGStab;
+        preconditioner      DILU;
+        tolerance           1e-08;
+        relTol              0.10;
+        maxIter             200;
+    }
+
+    // Mesh-motion (displacement-based LV solver)
+    cellDisplacement
+    {
+        solver          PCG;
+        preconditioner  DIC;
+        tolerance       1e-08;
+        relTol          0;
+        minIter         3;
+    }
+    cellDisplacementFinal
+    {
+        $cellDisplacement;
+        relTol          0;
+    }
+
+    // In case your motion class assembles a velocity-form system
+    // (covers vector and component forms)
+    "(cellMotionU|cellMotionU.)"
+    {
+        solver          PCG;
+        preconditioner  DIC;
+        tolerance       1e-08;
+        relTol          0;
+    }
+}
+
+PIMPLE
+{
+    correctPhi               yes;      // keep fluxes consistent with mesh motion
+    momentumPredictor        yes;
+
+    nOuterCorrectors         2;        // you can raise to 8–10 if coupling is stiff
+    nCorrectors             3;  // 3
+    nNonOrthogonalCorrectors 2;  //2
+
+    // If you don’t have a fixedValue p anywhere, you may set these (usually not needed)
+    pRefCell  0;
+     pRefValue 0;
+
+    residualControl
+    {
+        p { tolerance 1e-4; relTol 0; }
+        U { tolerance 1e-5; relTol 0; }
+
+        // Only applied if these fields exist
+        "(k|epsilon|omega|nuTilda)"
+        { tolerance 1e-5; relTol 0; }
+    }
+}
+
+relaxationFactors
+{
+    equations
+    {
+        U   0.5;
+        p   0.3;
+    }
+    fields
+    {
+      p  0.3;
+    }
+}
+
+
+// ************************************************************************* //

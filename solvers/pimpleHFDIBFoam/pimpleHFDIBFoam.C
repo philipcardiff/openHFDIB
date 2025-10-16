@@ -111,6 +111,9 @@ int main(int argc, char *argv[])
     openHFDIB  HFDIB(mesh);
     HFDIB.initialize();
 
+    HFDIB.update(body, f);
+    body.correctBoundaryConditions();
+
     turbulence->validate();
 
     if (!LTS)
@@ -143,7 +146,10 @@ int main(int argc, char *argv[])
 
         // Update the immersed location fields
         // Should this be inside the pimple loop?
-        HFDIB.update(lambda, f);
+	// HFDIB.update(lambda, f);
+
+	HFDIB.update(body, f);
+        body.correctBoundaryConditions();
 
         // --- Pressure-velocity PIMPLE corrector loop
         while (pimple.loop())
@@ -173,6 +179,9 @@ int main(int argc, char *argv[])
                     {
                         #include "meshCourantNo.H"
                     }
+
+		    HFDIB.update(body, f);
+                    body.correctBoundaryConditions();
                 }
             }
 

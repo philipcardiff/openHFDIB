@@ -56,6 +56,21 @@ volVectorField Ui
     U
 );
 
+Info<< "Creating field body\n" << nl << endl;
+volScalarField body
+(
+    IOobject
+    (
+     "body",
+     runTime.timeName(),
+     mesh,
+     IOobject::READ_IF_PRESENT,
+     IOobject::AUTO_WRITE
+     ),
+    mesh,
+    dimensionedScalar("zero", dimless, 0.0)
+);
+
 volScalarField surface("surf", lambda);
 
 Info<< "Reading field f" << nl << endl;

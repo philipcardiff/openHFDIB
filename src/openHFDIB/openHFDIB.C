@@ -78,7 +78,7 @@ openHFDIB::~openHFDIB()
     forAll(immersedBodies_,bodyI)
     {
         immersedBodies_[bodyI].clear();
-    }  
+    }
 
     immersedBodies_.clear();
 }
@@ -89,16 +89,16 @@ void openHFDIB::initialize()
     wordList stlNames( HFDIBDict_.lookup("bodyList") );
 
     HFDIBinterpDict_ = HFDIBDict_.subDict("interpolationSchemes");
-   
-    //Generate immersed objects    
+
+    //Generate immersed objects
     forAll(stlNames,name)
     {
         immersedBodies_.append
-        ( 
+        (
             autoPtr<immersedBody>
             (
                 new immersedBody
-                (  
+                (
                     stlNames[name],
                     mesh_,
                     HFDIBDict_,
@@ -119,7 +119,23 @@ void openHFDIB::update
 
     forAll(immersedBodies_,bodyId)
     {
-        immersedBodies_[bodyId]->updateBodyField(body,f);
+
+        volScalarField body_i
+        (
+            IOobject
+	    ("body_i_" + Foam::name(bodyId),
+	     mesh_.time().timeName(),
+	     mesh_,
+             IOobject::NO_READ,
+	     IOobject::NO_WRITE
+	    ),
+            mesh_,
+	    dimensionedScalar("zero", dimless, 0.0)
+        );
+
+        immersedBodies_[bodyId]->updateBodyField(body_i, f);
+	// immersedBodies_[bodyId]->updateBodyField(body,f);
+        body = Foam::max(body, body_i);
     }
 
 }
